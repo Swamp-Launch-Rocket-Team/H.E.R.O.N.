@@ -5,6 +5,29 @@
 constexpr uint8_t TLM_VERSION = 1;
 constexpr size_t  TLM_PACKET_SIZE = 52;
 
+// Scale factors: count = value * scale (encode), value = count / scale (decode)
+constexpr double TLM_ACCEL_SCALE   = 100.0;       // counts per g
+constexpr double TLM_GYRO_SCALE    = 10.0;        // counts per deg/s
+constexpr double TLM_TEMP_SCALE    = 100.0;       // counts per deg C
+constexpr double TLM_HEIGHT_SCALE  = 100.0;       // counts per m (stored as cm)
+constexpr double TLM_VSPEED_SCALE  = 10.0;        // counts per m/s
+constexpr double TLM_LATLON_SCALE  = 10000000.0;  // counts per degree
+constexpr double TLM_GPS_ALT_SCALE = 1000.0;      // counts per m (stored as mm)
+constexpr double TLM_GPS_AGE_SCALE = 10.0;        // counts per s
+constexpr double TLM_BATT_SCALE    = 1000.0;      // counts per V (stored as mV)
+constexpr double TLM_TIME_SCALE    = 1000.0;      // counts per s (stored as ms)
+// pressure is already in Pa, so it has no scale factor
+enum class FlightStage : uint8_t{
+    Pad = 0,
+    Boost = 1,
+    Coast = 2,
+    Apogee = 3,
+    Drogue = 4,
+    Main = 5,
+    Landed = 6
+};
+constexpr uint8_t TLM_FLAG_GPS_FIX = 1u << 0;  // GPS has a 3D fix
+constexpr uint8_t TLM_FLAG_ARMED = 1u << 2;
 #pragma pack(push,1)
 struct TelemetryPacketV1{
     uint8_t version; //Packet Version
@@ -28,3 +51,19 @@ struct TelemetryPacketV1{
 };
 static_assert(sizeof(TelemetryPacketV1) == TLM_PACKET_SIZE, "packet size changed");
 #pragma pack(pop)
+//Cyclic redundancy check; a 16-bit fingerprint of the packet's data
+inline uint16_t tlm_crc16(const uint8_t* data, size_t len){
+    uint16_t crc = 0xFFFF;
+   for(size_t i = 0; i < len; i++){
+    crc ^= data[i]<< 8;
+    for(size_t j = 0; j < 8; j++){
+        if(crc & 0x8000){
+            crc = crc<<1;
+            crc ^= 0x1021;
+        }
+        else crc = crc<<1;
+    }
+   }
+   return crc;
+};
+
