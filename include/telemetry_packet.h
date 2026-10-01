@@ -2,7 +2,9 @@
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
-
+#include <cmath>
+#include <limits>
+#include <algorithm>
 constexpr uint8_t TLM_VERSION = 1;
 constexpr size_t  TLM_PACKET_SIZE = 52;
 
@@ -84,4 +86,13 @@ inline TlmResult tlm_check(const uint8_t* buf, size_t len, TelemetryPacketV1& ou
     uint16_t crc = tlm_crc16(buf, offsetof(TelemetryPacketV1,crc));
     if(crc != out.crc) return TlmResult::BadCRC;
     return TlmResult::OK;
+}
+template <typename T>
+inline T tlm_encode(double value, double scale){
+    double x = value * scale;
+    if(std::isnan(x)) return 0;
+    const double lo = std::numeric_limits<T>::min();
+    const double hi = std::numeric_limits<T>::max();
+    x = std::clamp(x, lo, hi);
+    return static_cast<T>(std::llround(x));
 }
