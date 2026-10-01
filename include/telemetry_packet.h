@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 
 constexpr uint8_t TLM_VERSION = 1;
 constexpr size_t  TLM_PACKET_SIZE = 52;
@@ -66,4 +67,21 @@ inline uint16_t tlm_crc16(const uint8_t* data, size_t len){
    }
    return crc;
 };
-
+inline void tlm_finalize(TelemetryPacketV1& pkt){
+    pkt.version = TLM_VERSION;
+    pkt.crc = tlm_crc16(reinterpret_cast<const uint8_t*>(&pkt),offsetof(TelemetryPacketV1, crc));
+};
+enum class TlmResult : uint8_t{
+        OK = 0,
+        BadLength = 1,
+        BadVersion = 2,
+        BadCRC = 3
+};
+inline TlmResult tlm_check(const uint8_t* buf, size_t len, TelemetryPacketV1& out){
+    if(len != TLM_PACKET_SIZE) return TlmResult::BadLength;
+    if(buf[0] != TLM_VERSION) return TlmResult::BadVersion;
+    std::memcpy(&out, buf, TLM_PACKET_SIZE);
+    uint16_t crc = tlm_crc16(buf, offsetof(TelemetryPacketV1,crc));
+    if(crc != out.crc) return TlmResult::BadCRC;
+    return TlmResult::OK;
+}
