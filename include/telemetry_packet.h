@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <algorithm>
+
 constexpr uint8_t TLM_VERSION = 1;
 constexpr size_t  TLM_PACKET_SIZE = 52;
 
