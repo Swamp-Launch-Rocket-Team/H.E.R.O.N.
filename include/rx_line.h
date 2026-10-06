@@ -79,3 +79,15 @@ inline bool hex_to_bytes(const std::string& hex, uint8_t* out, size_t n){
     return true;
 
 }
+inline std::string bytes_to_hex(const uint8_t* data, size_t n){
+    const char* digits = "0123456789abcdef";
+    std::string hex_string = "";
+    for(size_t i = 0; i < n; i++){
+        uint8_t byte = data[i];
+        uint8_t hi = byte / 16;
+        uint8_t lo = byte % 16;
+        hex_string.push_back(digits[hi]);
+        hex_string.push_back(digits[lo]);
+    }
+    return hex_string;
+}
