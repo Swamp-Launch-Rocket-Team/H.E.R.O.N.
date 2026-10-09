@@ -170,7 +170,6 @@ int main(int, char**)
             bool ok = (parse_rx_line(text, new_rx) 
             && hex_to_bytes(new_rx.hex,bytes,new_rx.hex.size()/2))
             &&decodeTelemetryPacket(bytes, new_rx.hex.size()/2, new_pkt);  
-            
             if(ok){
                 rx = new_rx;
                 pkt = new_pkt;
@@ -187,7 +186,6 @@ int main(int, char**)
         double age_s = (SessionLog::now_ms() - last_packet_ms) / 1000.0;
         
         ImGui::Begin("Telemetry");
-        ImGui::Text("Swamp Launch GCS");
         if(!have_packet) ImGui::Text("NO PACKET");
         else{
             ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m);     
@@ -197,11 +195,12 @@ int main(int, char**)
             ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
             ImGui::End();
             ImGui::Begin("Health and Link");
-            ImGui::Text("Battery Voltage %.1f" , pkt.batt_voltage_v);
+            ImGui::Text("Battery Voltage %.2f" , pkt.batt_voltage_v);
             ImGui::Text("RSSI (signal strength): %.1f SNR (signal quality) %.1f", rx.rssi, rx.snr);
             ImGui::End();
             ImGui::Begin("IMU");
-            ImGui::Text("Acceleration, x: %.1f y: %.1f z:%.1f" , pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
+            ImGui::Text("Acceleration, x: %.1f y: %.1f z: %.1f" , pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
+            ImGui::Text("Rotation Rate x: %.1f y: %.1f z: %.1f", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
             ImGui::End();
         }
         ImGui::End();
