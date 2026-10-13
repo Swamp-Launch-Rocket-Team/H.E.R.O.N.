@@ -133,8 +133,13 @@ int main(int, char**)
     bool have_packet = false;
     std::string line;
     if(have_packet) last_packet_ms = SessionLog::now_ms();
-
-
+    constexpr double NO_SIGNAL_S = 3.0;   // at SF11 packets are 2.3 s apart
+    /*
+        Graphs,
+        Altitude vs Time
+        Visualizers 
+    
+    */
     // Main loop
 #ifdef __EMSCRIPTEN__
     // For an Emscripten build we are disabling file-system access, so let's not attempt to do a fopen() of the imgui.ini file.
@@ -190,57 +195,64 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         double age_s = (SessionLog::now_ms() - last_packet_ms) / 1000.0;
+        bool no_signal = have_packet && age_s > NO_SIGNAL_S;
+        if(no_signal){
+            ImGui::PushFont(nullptr, 32.0f);
+            ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f), "NO SIGNAL");
+            ImGui::PopFont();
+        }else{
+            ImGui::Begin("Telemetry");
+            if(!have_packet) ImGui::Text("NO PACKET");
+            else{
+                ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m);     
+                
+            }
+            ImGui::End();
+            ImGui::Begin("Flight");
+            if(!have_packet) ImGui::Text("NO PACKET");
+            else{
+                ImGui::Text("Time since last packet %.1f s", age_s);
+                ImGui::Text("FC time %.1f s", pkt.timestamp_ms/1000.0);
+                if(stats.launched == true) ImGui::Text("T+ %.1f s", stats.t_plus_s);
+                else ImGui::Text("T+ -- s");
+                ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
+            }
+            ImGui::End();
+            ImGui::Begin("Altitude");
+            if(!have_packet) ImGui::Text("NO PACKET");
+            else{
+                ImGui::Text("Vertical Speed %.1f m/s", stats.vspeed_ms);
+                if(stats.have_pad) ImGui::Text("Height Above Pad %.1f m\nPeak Altitude %.1f m", stats.agl_m, stats.peak_agl_m);
+                else ImGui::Text("Height Above Pad -- m\nPeak Altitude -- m" );
+                ImGui::Text("GPS climb: %.1f m/s", -pkt.gps_vel_down_ms);
+                ImGui::Text("Temperature: %.1f C\nPressure: %.1f hPa", pkt.baro_temp_c, pkt.baro_pressure_hpa);
+            }
+            ImGui::End();
+            ImGui::Begin("Health and Link");
+            if(!have_packet) ImGui::Text("NO PACKET");
+            else{
+                ImGui::Text("Battery Voltage %.2f V" , pkt.batt_voltage_v);
+                ImGui::Text("RSSI (signal strength): %.1f dBm \nSNR (signal quality) %.1f dB", rx.rssi, rx.snr);
+                ImGui::Text("Callsign: %s", pkt.callsign);
+            }
+            ImGui::End();
+            ImGui::Begin("GPS");
+            if(!have_packet)ImGui::Text("NO PACKET"); 
+            else{ ImGui::Text("GPS altitude: %.1f m", pkt.gps_alt_msl_m);
+                ImGui::Text("Fix Type: %d, Satellites: %u ",pkt.gps_fix_type, pkt.gps_num_sats);
+                ImGui::Text("Latitude: %.7f deg, Longitude: %.7f deg", pkt.gps_latitude_deg, pkt.gps_longitude_deg);
+                ImGui::Text("Ground Speed: %.1f m/s Headed: %.1f deg", pkt.gps_ground_speed_ms, pkt.gps_heading_deg);
+            }
+            ImGui::End();
+            ImGui::Begin("IMU");
+            if(!have_packet) ImGui::Text("NO PACKET");
+            else{
+                ImGui::Text("Total Acceleration: %.1f g \n x: %.1fg y: %.1fg z: %.1fg" ,std::sqrt(pkt.accel_x_g*pkt.accel_x_g + pkt.accel_y_g*pkt.accel_y_g +pkt.accel_z_g*pkt.accel_z_g), pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
+                ImGui::Text("Rotation Rate x: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
+            }            
+            ImGui::End();
+        }
         
-        ImGui::Begin("Telemetry");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
-            ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m);     
-            
-        }
-        ImGui::End();
-        ImGui::Begin("Flight");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
-            ImGui::Text("Time since last packet %.1f s", age_s);
-            ImGui::Text("FC time %.1f s", pkt.timestamp_ms/1000.0);
-            if(stats.launched == true) ImGui::Text("T+ %.1f s", stats.t_plus_s);
-            else ImGui::Text("T+ -- s");
-            ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
-        }
-        ImGui::End();
-        ImGui::Begin("Altitude");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
-            ImGui::Text("Vertical Speed %.1f m/s", stats.vspeed_ms);
-            if(stats.have_pad) ImGui::Text("Height Above Pad %.1f m\nPeak Altitude %.1f m", stats.agl_m, stats.peak_agl_m);
-            else ImGui::Text("Height Above Pad -- m\nPeak Altitude -- m" );
-            ImGui::Text("GPS climb: %.1f m/s", -pkt.gps_vel_down_ms);
-            ImGui::Text("Temperature: %.1f C\nPressure: %.1f hPa", pkt.baro_temp_c, pkt.baro_pressure_hpa);
-        }
-        ImGui::End();
-        ImGui::Begin("Health and Link");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
-            ImGui::Text("Battery Voltage %.2f V" , pkt.batt_voltage_v);
-            ImGui::Text("RSSI (signal strength): %.1f dBm \nSNR (signal quality) %.1f dB", rx.rssi, rx.snr);
-            ImGui::Text("Callsign: %s", pkt.callsign);
-        }
-        ImGui::End();
-        ImGui::Begin("GPS");
-        if(!have_packet)ImGui::Text("NO PACKET"); 
-        else{ ImGui::Text("GPS altitude: %.1f m", pkt.gps_alt_msl_m);
-            ImGui::Text("Fix Type: %d, Satellites: %u ",pkt.gps_fix_type, pkt.gps_num_sats);
-            ImGui::Text("Latitude: %.7f deg, Longitude: %.7f deg", pkt.gps_latitude_deg, pkt.gps_longitude_deg);
-            ImGui::Text("Ground Speed: %.1f m/s Headed: %.1f deg", pkt.gps_ground_speed_ms, pkt.gps_heading_deg);
-        }
-        ImGui::End();
-        ImGui::Begin("IMU");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
-            ImGui::Text("Total Acceleration: %.1f g \n x: %.1fg y: %.1fg z: %.1fg" ,std::sqrt(pkt.accel_x_g*pkt.accel_x_g + pkt.accel_y_g*pkt.accel_y_g +pkt.accel_z_g*pkt.accel_z_g), pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
-            ImGui::Text("Rotation Rate x: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
-        }            
-        ImGui::End();
         
         // Rendering
         ImGui::Render();

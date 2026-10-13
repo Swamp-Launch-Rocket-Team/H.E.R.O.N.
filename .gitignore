@@ -2,3 +2,6 @@
 *.exe
 # flight logs stay out of git
 logs/
+# local firmware copy and ImGui window layout
+bench/
+imgui.ini
