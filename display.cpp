@@ -15,6 +15,8 @@
 #include "rx_line.h"
 #include "log_tail.h"
 #include "flight_stats.h"
+#include "implot.h"
+#include <cmath>
 #include <stdio.h>
 #define GL_SILENCE_DEPRECATION
 #if defined(IMGUI_IMPL_OPENGL_ES2)
@@ -83,6 +85,7 @@ int main(int, char**)
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -130,14 +133,20 @@ int main(int, char**)
     FlightStats stats;
     long long last_packet_ms = 0;
     long long next_check_ms = 0;
+    double last_good_latitude = 0;
+    double last_good_longitude = 0;
+    long long last_good_fix_ms = 0;
+    bool have_good_fix = false;
     bool have_packet = false;
     std::string line;
     if(have_packet) last_packet_ms = SessionLog::now_ms();
-    constexpr double NO_SIGNAL_S = 3.0;   // at SF11 packets are 2.3 s apart
+    double limit_s = std::max(3 * expected_interval_s(pkt.flight_state), 2.0);
     /*
         Graphs,
         Altitude vs Time
-        Visualizers 
+        Visualizers
+            live location via gps
+        Buttons to switch btwn them
     
     */
     // Main loop
@@ -161,7 +170,7 @@ int main(int, char**)
             ImGui_ImplGlfw_Sleep(10);
             continue;
         }
-
+        double fix_age_s = (SessionLog::now_ms() - last_good_fix_ms) / 1000.0;
         if(SessionLog::now_ms() >= next_check_ms){
             std::string before = tail.current();
             tail.follow_newest("logs");
@@ -177,15 +186,30 @@ int main(int, char**)
             TelemetryPacket new_pkt;
             uint8_t bytes[255];
             
-            bool ok = (parse_rx_line(text, new_rx) 
+            bool pkt_ok = (parse_rx_line(text, new_rx) 
             && hex_to_bytes(new_rx.hex,bytes,new_rx.hex.size()/2))
             &&decodeTelemetryPacket(bytes, new_rx.hex.size()/2, new_pkt);  
-            if(ok){
+            if(pkt_ok){
                 rx = new_rx;
                 pkt = new_pkt;
                 update_stats(stats,pkt);
                 last_packet_ms = pc_ms;
                 have_packet = true;
+                if(pkt.gps_fix_type >= 3){
+                   last_good_latitude = pkt.gps_latitude_deg;
+                   last_good_longitude = pkt.gps_longitude_deg;
+                   last_good_fix_ms = pc_ms;
+                   have_good_fix = true;
+                   if(stats.have_pad_pos){
+                    double north_m = (pkt.gps_latitude_deg - stats.pad_lat) * 111320.0;
+                    double east_m  = (pkt.gps_longitude_deg - stats.pad_lon) * 111320.0  * std::cos(deg_to_rad(stats.pad_lat));
+                    stats.track_e.push_back(east_m);
+                    stats.track_n.push_back(north_m);
+                }
+
+
+                }
+                
             } 
              
         }
@@ -195,63 +219,86 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         double age_s = (SessionLog::now_ms() - last_packet_ms) / 1000.0;
-        bool no_signal = have_packet && age_s > NO_SIGNAL_S;
+        bool no_signal = have_packet && age_s > limit_s;
         if(no_signal){
             ImGui::PushFont(nullptr, 32.0f);
             ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f), "NO SIGNAL");
             ImGui::PopFont();
-        }else{
-            ImGui::Begin("Telemetry");
-            if(!have_packet) ImGui::Text("NO PACKET");
-            else{
-                ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m);     
-                
-            }
-            ImGui::End();
-            ImGui::Begin("Flight");
-            if(!have_packet) ImGui::Text("NO PACKET");
-            else{
-                ImGui::Text("Time since last packet %.1f s", age_s);
-                ImGui::Text("FC time %.1f s", pkt.timestamp_ms/1000.0);
-                if(stats.launched == true) ImGui::Text("T+ %.1f s", stats.t_plus_s);
-                else ImGui::Text("T+ -- s");
-                ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
-            }
-            ImGui::End();
-            ImGui::Begin("Altitude");
-            if(!have_packet) ImGui::Text("NO PACKET");
-            else{
-                ImGui::Text("Vertical Speed %.1f m/s", stats.vspeed_ms);
-                if(stats.have_pad) ImGui::Text("Height Above Pad %.1f m\nPeak Altitude %.1f m", stats.agl_m, stats.peak_agl_m);
-                else ImGui::Text("Height Above Pad -- m\nPeak Altitude -- m" );
-                ImGui::Text("GPS climb: %.1f m/s", -pkt.gps_vel_down_ms);
-                ImGui::Text("Temperature: %.1f C\nPressure: %.1f hPa", pkt.baro_temp_c, pkt.baro_pressure_hpa);
-            }
-            ImGui::End();
-            ImGui::Begin("Health and Link");
-            if(!have_packet) ImGui::Text("NO PACKET");
-            else{
-                ImGui::Text("Battery Voltage %.2f V" , pkt.batt_voltage_v);
-                ImGui::Text("RSSI (signal strength): %.1f dBm \nSNR (signal quality) %.1f dB", rx.rssi, rx.snr);
-                ImGui::Text("Callsign: %s", pkt.callsign);
-            }
-            ImGui::End();
-            ImGui::Begin("GPS");
-            if(!have_packet)ImGui::Text("NO PACKET"); 
-            else{ ImGui::Text("GPS altitude: %.1f m", pkt.gps_alt_msl_m);
-                ImGui::Text("Fix Type: %d, Satellites: %u ",pkt.gps_fix_type, pkt.gps_num_sats);
-                ImGui::Text("Latitude: %.7f deg, Longitude: %.7f deg", pkt.gps_latitude_deg, pkt.gps_longitude_deg);
-                ImGui::Text("Ground Speed: %.1f m/s Headed: %.1f deg", pkt.gps_ground_speed_ms, pkt.gps_heading_deg);
-            }
-            ImGui::End();
-            ImGui::Begin("IMU");
-            if(!have_packet) ImGui::Text("NO PACKET");
-            else{
-                ImGui::Text("Total Acceleration: %.1f g \n x: %.1fg y: %.1fg z: %.1fg" ,std::sqrt(pkt.accel_x_g*pkt.accel_x_g + pkt.accel_y_g*pkt.accel_y_g +pkt.accel_z_g*pkt.accel_z_g), pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
-                ImGui::Text("Rotation Rate x: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
-            }            
-            ImGui::End();
+        } 
+        if(no_signal) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+        ImGui::Begin("Telemetry");
+        if(!have_packet) ImGui::Text("NO PACKET");
+        else{
+            ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m);     
+            
         }
+        ImGui::End();
+        ImGui::Begin("Flight");
+        if(!have_packet) ImGui::Text("NO PACKET");
+        else{
+            ImGui::Text("Time since last packet %.1f s", age_s);
+            ImGui::Text("FC time %.1f s", pkt.timestamp_ms/1000.0);
+            if(stats.launched == true) ImGui::Text("T+ %.1f s", stats.t_plus_s);
+            else ImGui::Text("T+ -- s");
+            ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
+        }
+        ImGui::End();
+        ImGui::Begin("Altitude");
+        if(!have_packet) ImGui::Text("NO PACKET");
+        else{
+            ImGui::Text("Vertical Speed %.1f m/s", stats.vspeed_ms);
+            if(stats.have_pad) ImGui::Text("Height Above Pad %.1f m\nPeak Altitude %.1f m", stats.agl_m, stats.peak_agl_m);
+            else ImGui::Text("Height Above Pad -- m\nPeak Altitude -- m" );
+            ImGui::Text("GPS climb: %.1f m/s", -pkt.gps_vel_down_ms);
+            ImGui::Text("Temperature: %.1f C\nPressure: %.1f hPa", pkt.baro_temp_c, pkt.baro_pressure_hpa);
+        }
+        ImGui::End();
+        ImGui::Begin("Health and Link");
+        if(!have_packet) ImGui::Text("NO PACKET");
+        else{
+            ImGui::Text("Battery Voltage %.2f V" , pkt.batt_voltage_v);
+            ImGui::Text("RSSI (signal strength): %.1f dBm \nSNR (signal quality) %.1f dB", rx.rssi, rx.snr);
+            ImGui::Text("Callsign: %s", pkt.callsign);
+        }
+        ImGui::End();
+        ImGui::Begin("GPS");
+        if(!have_packet)ImGui::Text("NO PACKET"); 
+        else{ 
+            ImGui::Text("GPS altitude: %.1f m", pkt.gps_alt_msl_m);
+            if(have_good_fix){
+                ImGui::Text("Fix Type: %d, Satellites: %u",pkt.gps_fix_type, pkt.gps_num_sats);
+                char label[96];
+                std::snprintf(label, sizeof label, "Latitude: %.7f, Longitude: %.7f###copypos", last_good_latitude, last_good_longitude);
+                if(ImGui::Button(label)){
+                    char buf[64];
+                    std::snprintf(buf, sizeof buf, "%.7f, %.7f", last_good_latitude, last_good_longitude);
+                    ImGui::SetClipboardText(buf);
+                }
+            }
+            else ImGui::Text("Fix is %fs old", fix_age_s);
+            ImGui::Text("Ground Speed: %.1f m/s Headed: %.1f deg", pkt.gps_ground_speed_ms, pkt.gps_heading_deg);
+        }
+        ImGui::End();
+        ImGui::Begin("IMU");
+        if(!have_packet) ImGui::Text("NO PACKET");
+        else{
+            ImGui::Text("Total Acceleration: %.1f g \n x: %.1fg y: %.1fg z: %.1fg" ,std::sqrt(pkt.accel_x_g*pkt.accel_x_g + pkt.accel_y_g*pkt.accel_y_g +pkt.accel_z_g*pkt.accel_z_g), pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
+            ImGui::Text("Rotation Rate x: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
+        }
+        ImGui::End();
+        ImGui::Begin("Ground track");
+        if(ImPlot::BeginPlot("##track", ImVec2(-1, -1), ImPlotFlags_Equal)){
+            ImPlot::SetupAxes("East (m)", "North (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+            double zero = 0.0;
+            ImPlot::PlotLine("Track", stats.track_e.data(), stats.track_n.data(), (int)stats.track_e.size());
+            ImPlot::PlotScatter("Pad Marker", &zero,&zero,1);
+            if(!stats.track_e.empty()) ImPlot::PlotScatter("Last fix", &stats.track_e.back(), &stats.track_n.back(), 1);
+            ImPlot::EndPlot();
+        }
+        ImGui::End();
+        if(no_signal)ImGui::PopStyleColor();         
+        
+        
         
         
         // Rendering
@@ -272,6 +319,7 @@ int main(int, char**)
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+    ImPlot::DestroyContext();
     ImGui::DestroyContext();
     glfwDestroyWindow(window);
     glfwTerminate();
