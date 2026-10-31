@@ -28,7 +28,10 @@ struct FlightStats{
     std::vector<double> track_e;
     std::vector<double> track_n;
 };
-
+inline void latlon_to_en(const FlightStats& s, double lat, double lon, double& east_m, double& north_m){
+    north_m = (lat - s.pad_lat) * 111320.0;
+    east_m  = (lon - s.pad_lon) * 111320.0  * std::cos(deg_to_rad(s.pad_lat));
+}
 // Slope (m/s) of the best-fit line through the (time, altitude) points.
 inline double slope_of(const std::deque<std::pair<double,double>>& pts){
     int size = pts.size();
