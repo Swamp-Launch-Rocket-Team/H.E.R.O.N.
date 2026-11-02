@@ -16,8 +16,11 @@
 #include "log_tail.h"
 #include "flight_stats.h"
 #include "implot.h"
+#include "map_image.h"
 #include <cmath>
 #include <stdio.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 #define GL_SILENCE_DEPRECATION
 #if defined(IMGUI_IMPL_OPENGL_ES2)
 #include <GLES2/gl2.h>
@@ -40,7 +43,6 @@ static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
-
 // Main code
 int main(int, char**)
 {
@@ -105,6 +107,9 @@ int main(int, char**)
     ImGui_ImplGlfw_InstallEmscriptenCallbacks(window, "#canvas");
 #endif
     ImGui_ImplOpenGL3_Init(glsl_version);
+    MapImage map;
+    if(!fillMapImage(map,"maps\\test_site.jpg","maps\\test_site.txt")) fprintf(stderr, "map failed to load\n");
+    else printf("map %d x %d, W %.6f S %.6f E %.6f N %.6f\n", map.width, map.height, map.west, map.south, map.east, map.north);
 
     // Load Fonts
     // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
@@ -200,12 +205,12 @@ int main(int, char**)
                    last_good_longitude = pkt.gps_longitude_deg;
                    last_good_fix_ms = pc_ms;
                    have_good_fix = true;
-                   if(stats.have_pad_pos){
-                    double north_m = (pkt.gps_latitude_deg - stats.pad_lat) * 111320.0;
-                    double east_m  = (pkt.gps_longitude_deg - stats.pad_lon) * 111320.0  * std::cos(deg_to_rad(stats.pad_lat));
-                    stats.track_e.push_back(east_m);
-                    stats.track_n.push_back(north_m);
-                }
+                    if(stats.have_pad_pos){
+                        double east_m, north_m;
+                        latlon_to_en(stats, pkt.gps_latitude_deg, pkt.gps_longitude_deg, east_m, north_m);
+                        stats.track_e.push_back(east_m);
+                        stats.track_n.push_back(north_m);
+                    }
 
 
                 }
@@ -288,7 +293,16 @@ int main(int, char**)
         ImGui::End();
         ImGui::Begin("Ground track");
         if(ImPlot::BeginPlot("##track", ImVec2(-1, -1), ImPlotFlags_Equal)){
-            ImPlot::SetupAxes("East (m)", "North (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+            ImPlot::SetupAxes("East (m)", "North (m)", 0, 0);
+            ImPlot::SetupAxesLimits(-500, 500, -500, 500, ImPlotCond_Once);
+            if(map.tex != 0 && stats.have_pad_pos){
+                double sw_e, sw_n, ne_e, ne_n;
+                latlon_to_en(stats, map.south, map.west, sw_e, sw_n);
+                latlon_to_en(stats, map.north, map.east, ne_e, ne_n);
+                ImPlotSpec spec;
+                spec.Flags = ImPlotItemFlags_NoFit;
+                ImPlot::PlotImage("##map", (ImTextureID)map.tex, ImPlotPoint(sw_e, sw_n), ImPlotPoint(ne_e, ne_n), ImVec2(0,0), ImVec2(1,1), ImVec4(1,1,1,1), spec);
+            }
             double zero = 0.0;
             ImPlot::PlotLine("Track", stats.track_e.data(), stats.track_n.data(), (int)stats.track_e.size());
             ImPlot::PlotScatter("Pad Marker", &zero,&zero,1);
