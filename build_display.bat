@@ -24,5 +24,5 @@ set OBJS=
 for %%o in (obj\*.o) do set OBJS=!OBJS! %%o
 g++ -g -Wall -Wextra -std=c++17 -I include -I third_party\imgui-master ^
   -I third_party\imgui-master\backends -I third_party\implot -I third_party\stb ^
-  display.cpp !OBJS! -o display.exe -lglfw3 -lopengl32 -lgdi32 || exit /b 1
+  display.cpp !OBJS! -o display.exe -lglfw3 -lurlmon -lopengl32 -lgdi32 || exit /b 1
 echo Done: display.exe

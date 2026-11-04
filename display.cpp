@@ -108,8 +108,8 @@ int main(int, char**)
 #endif
     ImGui_ImplOpenGL3_Init(glsl_version);
     MapImage map;
-    if(!fillMapImage(map,"maps\\test_site.jpg","maps\\test_site.txt")) fprintf(stderr, "map failed to load\n");
-    else printf("map %d x %d, W %.6f S %.6f E %.6f N %.6f\n", map.width, map.height, map.west, map.south, map.east, map.north);
+    if(!fillMapImage(map, "maps\\live_site.jpg", "maps\\live_site.txt") &&
+   !fillMapImage(map, "maps\\test_site.jpg", "maps\\test_site.txt")) fprintf(stderr, "no map loaded\n");
 
     // Load Fonts
     // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
@@ -143,6 +143,7 @@ int main(int, char**)
     long long last_good_fix_ms = 0;
     bool have_good_fix = false;
     bool have_packet = false;
+    bool map_downloaded = false;
     std::string line;
     if(have_packet) last_packet_ms = SessionLog::now_ms();
     double limit_s = std::max(3 * expected_interval_s(pkt.flight_state), 2.0);
@@ -218,57 +219,67 @@ int main(int, char**)
             } 
              
         }
-      
+
+        
+        if(stats.have_pad_pos && !map_downloaded){
+            map_downloaded = true;
+            MapBox box = map_box_around(stats.pad_lat, stats.pad_lon);
+            if(download_map(box, "maps\\live_site.jpg", "maps\\live_site.txt")){
+                MapImage new_map;
+                if(fillMapImage(new_map, "maps\\live_site.jpg", "maps\\live_site.txt")){
+                    glDeleteTextures(1, &map.tex);
+                    map = new_map;
+                }
+                else fprintf(stderr, "live map failed to load, keeping the old map\n");
+            }
+        else fprintf(stderr, "live map download failed, keeping the old map\n");
+}
         // Start the ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        //Split Display into 3 windows
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImVec2 origin = vp->WorkPos;    // top-left of the usable area
+        ImVec2 area   = vp->WorkSize;   // its width and height
+        float left_w  = area.x * 0.25f;
+        float mid_w   = area.x * 0.50f;
+        float right_w = area.x - left_w - mid_w;
+        ImGuiWindowFlags fixed = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse;
         double age_s = (SessionLog::now_ms() - last_packet_ms) / 1000.0;
         bool no_signal = have_packet && age_s > limit_s;
+        if(no_signal) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+        ImGui::SetNextWindowPos(ImVec2(origin.x + left_w + mid_w, origin.y));
+        ImGui::SetNextWindowSize(ImVec2(right_w, area.y));
+        ImGui::Begin("Data", nullptr, fixed);
         if(no_signal){
             ImGui::PushFont(nullptr, 32.0f);
             ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f), "NO SIGNAL");
             ImGui::PopFont();
         } 
-        if(no_signal) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-        ImGui::Begin("Telemetry");
         if(!have_packet) ImGui::Text("NO PACKET");
-        else{
-            ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m);     
-            
-        }
-        ImGui::End();
-        ImGui::Begin("Flight");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
+        else {
+            ImGui::SeparatorText("Flight");   
             ImGui::Text("Time since last packet %.1f s", age_s);
             ImGui::Text("FC time %.1f s", pkt.timestamp_ms/1000.0);
             if(stats.launched == true) ImGui::Text("T+ %.1f s", stats.t_plus_s);
             else ImGui::Text("T+ -- s");
             ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
-        }
-        ImGui::End();
-        ImGui::Begin("Altitude");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
+            
+            ImGui::SeparatorText("Altitude");
+            ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m); 
             ImGui::Text("Vertical Speed %.1f m/s", stats.vspeed_ms);
             if(stats.have_pad) ImGui::Text("Height Above Pad %.1f m\nPeak Altitude %.1f m", stats.agl_m, stats.peak_agl_m);
             else ImGui::Text("Height Above Pad -- m\nPeak Altitude -- m" );
             ImGui::Text("GPS climb: %.1f m/s", -pkt.gps_vel_down_ms);
             ImGui::Text("Temperature: %.1f C\nPressure: %.1f hPa", pkt.baro_temp_c, pkt.baro_pressure_hpa);
-        }
-        ImGui::End();
-        ImGui::Begin("Health and Link");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
+
+            ImGui::SeparatorText("Health and Link");
             ImGui::Text("Battery Voltage %.2f V" , pkt.batt_voltage_v);
             ImGui::Text("RSSI (signal strength): %.1f dBm \nSNR (signal quality) %.1f dB", rx.rssi, rx.snr);
             ImGui::Text("Callsign: %s", pkt.callsign);
-        }
-        ImGui::End();
-        ImGui::Begin("GPS");
-        if(!have_packet)ImGui::Text("NO PACKET"); 
-        else{ 
+
+            ImGui::SeparatorText("GPS");
             ImGui::Text("GPS altitude: %.1f m", pkt.gps_alt_msl_m);
             if(have_good_fix){
                 ImGui::Text("Fix Type: %d, Satellites: %u",pkt.gps_fix_type, pkt.gps_num_sats);
@@ -282,16 +293,16 @@ int main(int, char**)
             }
             else ImGui::Text("Fix is %fs old", fix_age_s);
             ImGui::Text("Ground Speed: %.1f m/s Headed: %.1f deg", pkt.gps_ground_speed_ms, pkt.gps_heading_deg);
-        }
-        ImGui::End();
-        ImGui::Begin("IMU");
-        if(!have_packet) ImGui::Text("NO PACKET");
-        else{
+
+            ImGui::SeparatorText("IMU");
             ImGui::Text("Total Acceleration: %.1f g \n x: %.1fg y: %.1fg z: %.1fg" ,std::sqrt(pkt.accel_x_g*pkt.accel_x_g + pkt.accel_y_g*pkt.accel_y_g +pkt.accel_z_g*pkt.accel_z_g), pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
-            ImGui::Text("Rotation Rate x: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
-        }
+            ImGui::Text("Rotation Rate: \nx: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
+        }   
         ImGui::End();
-        ImGui::Begin("Ground track");
+
+        ImGui::SetNextWindowPos(ImVec2(origin.x + left_w, origin.y));
+        ImGui::SetNextWindowSize(ImVec2(mid_w, area.y));
+        ImGui::Begin("Ground track", nullptr, fixed);
         if(ImPlot::BeginPlot("##track", ImVec2(-1, -1), ImPlotFlags_Equal)){
             ImPlot::SetupAxes("East (m)", "North (m)", 0, 0);
             ImPlot::SetupAxesLimits(-500, 500, -500, 500, ImPlotCond_Once);
@@ -309,6 +320,10 @@ int main(int, char**)
             if(!stats.track_e.empty()) ImPlot::PlotScatter("Last fix", &stats.track_e.back(), &stats.track_n.back(), 1);
             ImPlot::EndPlot();
         }
+        ImGui::End();
+        ImGui::SetNextWindowPos(ImVec2(origin.x, origin.y));
+        ImGui::SetNextWindowSize(ImVec2(left_w, area.y));
+        ImGui::Begin("Graphs", nullptr, fixed);
         ImGui::End();
         if(no_signal)ImGui::PopStyleColor();         
         
