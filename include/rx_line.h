@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <cctype>
 
 // One line from the ground receiver, for example:
@@ -47,8 +48,8 @@ inline bool parse_rx_line(const std::string& line, RxLine& out){
     const std::string hex_key = R"("hex":")";
     pos = line.find(hex_key);
     if (pos == std::string::npos) return false;      // key missing -> not a valid rx line
-    size_t hex_start = pos + hex_key.size();   // index just past "hex":"
-    size_t hex_end = line.find('"', hex_start);   // the closing quote
+    size_t hex_start = pos + hex_key.size();         // index just past "hex":"
+    size_t hex_end = line.find('"', hex_start);      // the closing quote
     if(hex_end == std::string::npos) return false;
     out.hex = line.substr(hex_start, hex_end-hex_start);
     // Any whole number of bytes up to 255 (the LoRa maximum). The decoder checks
@@ -90,4 +91,32 @@ inline std::string bytes_to_hex(const uint8_t* data, size_t n){
         hex_string.push_back(digits[lo]);
     }
     return hex_string;
+}
+
+struct GsLine{
+    int fix;
+    int sats;
+    double lon;
+    double lat;
+};
+inline bool json_number(const std::string& line, const char* key, double& out){
+    size_t pos = line.find(key);
+    if(pos == std::string::npos) return false;
+    const char* start = line.c_str() + pos + std::strlen(key);
+    char* end = nullptr;
+    double val = std::strtod(start, &end); 
+    if(end == start) return false;  
+    out = val;
+    return true;
+}
+inline bool parse_gs_line(const std::string& line, GsLine& out){
+    if(line.find(R"("type":"gs")") == std::string::npos) return false;
+    double fix, sats;
+    if(!json_number(line, R"("fix":)",  fix))  return false;
+    if(!json_number(line, R"("sats":)", sats)) return false;
+    if(!json_number(line, R"("lat":)",  out.lat)) return false;
+    if(!json_number(line, R"("lon":)",  out.lon)) return false;
+    out.fix  = (int)fix;
+    out.sats = (int)sats;
+    return true;
 }
