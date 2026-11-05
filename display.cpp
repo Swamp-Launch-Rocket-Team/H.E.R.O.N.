@@ -144,6 +144,9 @@ int main(int, char**)
     bool have_good_fix = false;
     bool have_packet = false;
     bool map_downloaded = false;
+    GsLine gs{};
+    bool have_gs = false;
+    bool show_gs = true;
     std::string line;
     if(have_packet) last_packet_ms = SessionLog::now_ms();
     double limit_s = std::max(3 * expected_interval_s(pkt.flight_state), 2.0);
@@ -187,6 +190,7 @@ int main(int, char**)
             size_t tab = line.find('\t');
             if(tab == std::string::npos) continue;
             long long pc_ms = std::strtoll(line.c_str(),nullptr,10);
+
             std::string text = line.substr(tab+1);
             RxLine new_rx;
             TelemetryPacket new_pkt;
@@ -217,7 +221,14 @@ int main(int, char**)
                 }
                 
             } 
-             
+            else{
+                GsLine new_gs;
+                if(parse_gs_line(text,new_gs) && new_gs.fix >=3){
+                    gs = new_gs;
+                    have_gs = true; 
+
+                } 
+            } 
         }
 
         
@@ -303,6 +314,7 @@ int main(int, char**)
         ImGui::SetNextWindowPos(ImVec2(origin.x + left_w, origin.y));
         ImGui::SetNextWindowSize(ImVec2(mid_w, area.y));
         ImGui::Begin("Ground track", nullptr, fixed);
+        ImGui::Checkbox("Ground Station", &show_gs);
         if(ImPlot::BeginPlot("##track", ImVec2(-1, -1), ImPlotFlags_Equal)){
             ImPlot::SetupAxes("East (m)", "North (m)", 0, 0);
             ImPlot::SetupAxesLimits(-500, 500, -500, 500, ImPlotCond_Once);
@@ -318,6 +330,14 @@ int main(int, char**)
             ImPlot::PlotLine("Track", stats.track_e.data(), stats.track_n.data(), (int)stats.track_e.size());
             ImPlot::PlotScatter("Pad Marker", &zero,&zero,1);
             if(!stats.track_e.empty()) ImPlot::PlotScatter("Last fix", &stats.track_e.back(), &stats.track_n.back(), 1);
+            if(show_gs && have_gs && stats.have_pad_pos){
+                double gs_e, gs_n;
+                latlon_to_en(stats, gs.lat, gs.lon, gs_e, gs_n);  
+                ImPlotSpec gs_spec;
+                gs_spec.Marker = ImPlotMarker_Square;
+                gs_spec.MarkerSize = 6;
+                ImPlot::PlotScatter("Ground station", &gs_e, &gs_n, 1, gs_spec);  
+            }
             ImPlot::EndPlot();
         }
         ImGui::End();
