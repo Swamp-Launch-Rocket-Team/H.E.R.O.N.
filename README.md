@@ -25,12 +25,12 @@ You only need to do this once per computer.
 
    VS Code's guide walks through the same steps with pictures: [Using GCC with MinGW](https://code.visualstudio.com/docs/cpp/config-mingw).
 4. **Get the code**, either way works:
-   - With Git: `git clone https://github.com/Swamp-Launch-Rocket-Team/swamp-gcs.git`
+   - With Git: `git clone https://github.com/Swamp-Launch-Rocket-Team/HERON.git`
    - Without Git: on the GitHub page, click **Code → Download ZIP**, then unzip it.
 
-## 2. Open a terminal in the swamp-gcs folder
+## 2. Open a terminal in the HERON folder
 
-In File Explorer, open the `swamp-gcs` folder, click the address bar at the top, type `cmd` and press Enter. A Command Prompt window opens, already in the right folder.
+In File Explorer, open the `HERON` folder, click the address bar at the top, type `cmd` and press Enter. A Command Prompt window opens, already in the right folder.
 
 > **Using PowerShell or the VS Code terminal?** Put `.\` in front of the commands below, for example `.\run.bat demo`.
 
@@ -97,12 +97,12 @@ The `logs` folder is not uploaded to GitHub, so copy out any flights you want to
 | You see | What to do |
 |---|---|
 | `g++ not found` | `C:\msys64\ucrt64\bin` isn't on your PATH (setup step 3). Close and reopen the terminal after changing it. |
-| `'run.bat' is not recognized` | In PowerShell, type `.\run.bat`. Otherwise you're not in the swamp-gcs folder (step 2). |
+| `'run.bat' is not recognized` | In PowerShell, type `.\run.bat`. Otherwise you're not in the HERON folder (step 2). |
 | `usage: run.bat demo  or  run.bat COM4` | Add `demo` or your COM port after `run.bat`. Double-clicking run.bat won't work. |
 | A popup saying a `.dll` was not found (for example `glfw3.dll`) | GLFW isn't installed (setup step 2) or PATH isn't set (setup step 3). |
 | `cannot find -lglfw3` while building | GLFW isn't installed (setup step 2). |
 | The gcs window stays empty | Wrong COM port, or another program has the port open. Check Device Manager and close any serial monitors. |
-| The dashboard says NO PACKET forever | The gcs window was closed, or the programs were started from a different folder. Start them with `run.bat` from the swamp-gcs folder. |
+| The dashboard says NO PACKET forever | The gcs window was closed, or the programs were started from a different folder. Start them with `run.bat` from the HERON folder. |
 
 ## How it works (for developers)
 
@@ -114,7 +114,7 @@ ground board (USB)  →  gcs.exe  →  logs\*_raw.log  →  display.exe
 - **display.exe** is the dashboard, built with [Dear ImGui](https://github.com/ocornut/imgui) (user interface) and [ImPlot](https://github.com/epezent/implot) (plots). It reads the newest `_raw.log` in `logs` and switches to a newer one within a second when a new session starts.
 - **fake_rx.exe** prints a simulated flight in the same format as the ground board. `run.bat demo` pipes it into gcs: `fake_rx.exe | gcs.exe`.
 
-The log file is the only connection between gcs.exe and display.exe. If you close the dashboard, reopening it (from the swamp-gcs folder) replays the current session from the start, so nothing is lost.
+The log file is the only connection between gcs.exe and display.exe. If you close the dashboard, reopening it (from the HERON folder) replays the current session from the start, so nothing is lost.
 
 ### Building by hand
 
