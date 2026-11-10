@@ -1,4 +1,4 @@
-# Swamp Launch Ground Station (swamp-gcs)
+# H.E.R.O.N. (High Elevation Radio Observation Network)
 
 The ground station for Swamp Launch rockets. It receives telemetry from the rocket's radio through the ground board and shows altitude, vertical speed, GPS position, battery and signal strength live on screen, along with a plot of the rocket's path over the ground. Every session is saved to a log file.
 
