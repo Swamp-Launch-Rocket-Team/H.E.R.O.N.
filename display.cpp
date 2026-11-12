@@ -12,6 +12,7 @@
 #include "implot.h"
 #include "map_image.h"
 #include "history.h"
+#include "rocket_view.h"
 #include <cmath>
 #include <stdio.h>
 #ifndef STB_IMAGE_STATIC
@@ -53,6 +54,10 @@ int main(int, char**)
     MapImage map;
     if(!fillMapImage(map, "maps\\live_site.jpg", "maps\\live_site.txt") &&
    !fillMapImage(map, "maps\\test_site.jpg", "maps\\test_site.txt")) fprintf(stderr, "no map loaded\n");
+    RocketView rocket_view;
+    if(!rocket_view.Load()) fprintf(stderr, "rocket models not loaded\n");
+    // TEST (Phase 3): fixed 30 degree tilt about north. Phase 4 replaces this with rocket_orientation().
+    Quaternion rocket_q = QuaternionFromAxisAngle(Vector3{1.0f, 0.0f, 0.0f}, 30.0f * DEG2RAD);
 
     // Load Fonts
     // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
@@ -200,7 +205,8 @@ int main(int, char**)
         bool no_signal = have_packet && age_s > limit_s;
         if(no_signal) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
         ImGui::SetNextWindowPos(ImVec2(origin.x + left_w + mid_w, origin.y));
-        ImGui::SetNextWindowSize(ImVec2(right_w, area.y));
+        float data_h = area.y * 0.55f;   // right column: Data on top, rocket view below
+        ImGui::SetNextWindowSize(ImVec2(right_w, data_h));
         ImGui::Begin("Data", nullptr, fixed);
         if(no_signal){
             ImGui::PushFont(nullptr, 32.0f);
@@ -248,6 +254,12 @@ int main(int, char**)
             ImGui::Text("Total Acceleration: %.1f g \n x: %.1fg y: %.1fg z: %.1fg" ,std::sqrt(pkt.accel_x_g*pkt.accel_x_g + pkt.accel_y_g*pkt.accel_y_g +pkt.accel_z_g*pkt.accel_z_g), pkt.accel_x_g,pkt.accel_y_g,pkt.accel_z_g);
             ImGui::Text("Rotation Rate: \nx: %.1f deg/s y: %.1f deg/s z: %.1f deg/s", pkt.gyro_x_dps, pkt.gyro_y_dps, pkt.gyro_z_dps);
         }   
+        ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(origin.x + left_w + mid_w, origin.y + data_h));
+        ImGui::SetNextWindowSize(ImVec2(right_w, area.y - data_h));
+        ImGui::Begin("Rocket", nullptr, fixed | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        rocket_view.Draw();
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2(origin.x + left_w, origin.y));
@@ -351,6 +363,9 @@ int main(int, char**)
         
         
         
+        // 3D rocket into its texture (must be outside BeginDrawing/EndDrawing)
+        rocket_view.Render(rocket_q);
+
         // Rendering (rlImGuiEnd calls ImGui::Render and draws it with raylib)
         BeginDrawing();
         ClearBackground(ColorFromNormalized(Vector4{ clear_color.x, clear_color.y, clear_color.z, clear_color.w }));
@@ -360,6 +375,7 @@ int main(int, char**)
 
     // Cleanup (rlImGuiShutdown destroys the ImGui context)
     if (map.tex.id != 0) UnloadTexture(map.tex);
+    rocket_view.Unload();
     ImPlot::DestroyContext();
     rlImGuiShutdown();
     CloseWindow();

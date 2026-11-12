@@ -1,0 +1,3 @@
+Rocket models (body + 4 fins) by Will Huff, from his RocketVisualizer
+(https://github.com/willhuff0/RocketVisualizer, resources/models, commit 740fae9 2026-10-07).
+Copied 2026-11-12 for the H.E.R.O.N 3D rocket view.
