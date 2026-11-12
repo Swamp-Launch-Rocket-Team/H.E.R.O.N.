@@ -17,6 +17,7 @@
 #include "flight_stats.h"
 #include "implot.h"
 #include "map_image.h"
+#include "history.h"
 #include <cmath>
 #include <stdio.h>
 #define STB_IMAGE_IMPLEMENTATION
@@ -136,6 +137,7 @@ int main(int, char**)
     RxLine rx;    
     LogTail tail;
     FlightStats stats;
+    History hist;
     long long last_packet_ms = 0;
     long long next_check_ms = 0;
     double last_good_latitude = 0;
@@ -147,12 +149,17 @@ int main(int, char**)
     GsLine gs{};
     bool have_gs = false;
     bool show_gs = true;
+    bool show_alt = true, show_vs = true, show_acc = true;
+    bool follow = true;
+    double x_min = -30, x_max = 2;
     std::string line;
     if(have_packet) last_packet_ms = SessionLog::now_ms();
     double limit_s = std::max(3 * expected_interval_s(pkt.flight_state), 2.0);
     /*
         Graphs,
+
         Altitude vs Time
+        
         Visualizers
             live location via gps
         Buttons to switch btwn them
@@ -181,9 +188,10 @@ int main(int, char**)
         }
         double fix_age_s = (SessionLog::now_ms() - last_good_fix_ms) / 1000.0;
         if(SessionLog::now_ms() >= next_check_ms){
+            
             std::string before = tail.current();
             tail.follow_newest("logs");
-            if(tail.current() != before) stats = FlightStats{};
+            if(tail.current() != before) {stats = FlightStats{}; hist.clear();}
             next_check_ms = SessionLog::now_ms() + 1000;
         }
         while(tail.next_line(line)){
@@ -203,6 +211,7 @@ int main(int, char**)
                 rx = new_rx;
                 pkt = new_pkt;
                 update_stats(stats,pkt);
+                hist.add(pkt,stats);
                 last_packet_ms = pc_ms;
                 have_packet = true;
                 if(pkt.gps_fix_type >= 3){
@@ -344,6 +353,68 @@ int main(int, char**)
         ImGui::SetNextWindowPos(ImVec2(origin.x, origin.y));
         ImGui::SetNextWindowSize(ImVec2(left_w, area.y));
         ImGui::Begin("Graphs", nullptr, fixed);
+        ImGui::Checkbox("Altitude", &show_alt);
+        ImGui::SameLine();
+        ImGui::Checkbox("Velocity", &show_vs);
+        ImGui::SameLine();
+        ImGui::Checkbox("Acceleration", &show_acc);
+        ImGui::SameLine(); 
+        ImGui::Checkbox("Follow", &follow);
+        if(!hist.t_s.empty()){
+            double t0 = stats.launched ? stats.liftoff_ms / 1000.0 : hist.t_s.back();
+            std::vector<double> x(hist.t_s.size());
+            for(size_t i = 0; i < x.size(); i++) x[i] = hist.t_s[i] - t0;
+            double now = x.back();
+            if(follow){ x_min = now - 30; x_max = now + 2;}
+            int n = show_alt + show_vs + show_acc;
+            if(n > 0){
+                float h = ImGui::GetContentRegionAvail().y / n - ImGui::GetStyle().ItemSpacing.y;
+                if(show_alt){
+                    if(ImPlot::BeginPlot("Height above pad", ImVec2(-1, h), ImPlotFlags_NoLegend)){
+                        ImPlot::SetupAxes("T+ (s)", "m", 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
+                        ImPlot::SetupAxisLinks(ImAxis_X1, &x_min, &x_max);
+                        if(ImPlot::IsPlotHovered() && 
+                        (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::GetIO().MouseWheel != 0))
+                        follow = false;
+                        ImPlot::PlotLine("baro", x.data(), hist.agl_m.data(), (int)x.size());
+                        if(stats.launched){ double zero = 0; ImPlot::PlotInfLines("liftoff", &zero, 1); }
+                        ImPlot::EndPlot();
+                    }
+                }
+                if(show_vs){
+                    if(ImPlot::BeginPlot("Vertical Speed", ImVec2(-1, h))){
+        
+                        ImPlot::SetupAxes("T+ (s)", "m/s", 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
+                        ImPlot::SetupAxisLinks(ImAxis_X1, &x_min, &x_max);
+                        if(ImPlot::IsPlotHovered() && 
+                        (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::GetIO().MouseWheel != 0))
+                        follow = false;
+                        ImPlot::PlotLine("baro", x.data(), hist.vs_baro.data(), (int)x.size());
+                        ImPlot::PlotLine("GPS Climb", x.data(), hist.vs_gps.data(), (int)x.size());
+                        if(stats.launched){
+                            double zero = 0;
+                            ImPlotSpec spec; spec.Flags = ImPlotItemFlags_NoLegend;
+                            ImPlot::PlotInfLines("liftoff", &zero, 1, spec);
+                        }                        
+                        ImPlot::EndPlot();
+                    }
+                }
+                if(show_acc){
+                    if(ImPlot::BeginPlot("Acceleration##plot", ImVec2(-1, h), ImPlotFlags_NoLegend)){
+                        ImPlot::SetupAxes("T+ (s)", "g", 0, ImPlotAxisFlags_AutoFit | ImPlotAxisFlags_RangeFit);
+                        ImPlot::SetupAxisLinks(ImAxis_X1, &x_min, &x_max);
+                        if(ImPlot::IsPlotHovered() && 
+                        (ImGui::IsMouseDragging(ImGuiMouseButton_Left) || ImGui::GetIO().MouseWheel != 0))
+                        follow = false;
+                        ImPlot::PlotLine("|a|", x.data(), hist.accel_g.data(), (int)x.size());
+                        if(stats.launched){ double zero = 0; ImPlot::PlotInfLines("liftoff", &zero, 1); }
+                        ImPlot::EndPlot();
+                        }
+                }
+            }
+            
+
+        }
         ImGui::End();
         if(no_signal)ImGui::PopStyleColor();         
         
