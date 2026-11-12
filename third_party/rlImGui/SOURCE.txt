@@ -1,0 +1,5 @@
+rlImGui (raylib backend for Dear ImGui)
+Source: https://github.com/raylib-extras/rlImGui
+Tag: Raylib_6_0, commit 3bc5731c4216bb8caa67fbea24aa85ce80d57ccb
+Copied 2026-11-12. Verified to compile against third_party/imgui-master (1.93 WIP) and raylib 6.2.
+License: zlib-style (LICENSE.txt). Font Awesome files: see extras/FontAwsome_LICENSE.txt.

@@ -8,8 +8,8 @@
 #include <utility>
 
 constexpr double PAD_SMOOTHING = 0.05;   // how far each pad reading pulls the reference
-constexpr double PI = 3.14159265358979323846;
-inline double deg_to_rad(double deg){ return deg * PI / 180.0; }
+constexpr double PI_D = 3.14159265358979323846;   // not PI: raylib #defines PI as a float
+inline double deg_to_rad(double deg){ return deg * PI_D / 180.0; }
 constexpr size_t VSPEED_WINDOW = 5;      // packets used for vertical speed
 struct FlightStats{
     bool have_pad = false; //is the pad refrence known?
