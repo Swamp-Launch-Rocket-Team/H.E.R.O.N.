@@ -1,5 +1,5 @@
 #pragma once
-#include <rasalhague_packet.h>
+#include "rasalhague_packet.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -20,7 +20,13 @@ struct FlightStats{
     double agl_m = 0; //height of the pad
     double peak_agl_m = 0;
     bool launched = false;
-    uint32_t liftoff_ms = 0; // rocket clock at the first packet after PAD
+    long long liftoff_ms = 0;     // continuous FC time at liftoff (was uint32_t: wrapped after a reboot)
+    long long fc_offset_ms = 0;   // added to timestamp_ms so time keeps going after a reboot
+    long long t_ms = 0;           // continuous flight-computer time; use this, not timestamp_ms
+    uint32_t  last_fc_ms = 0;
+    long long last_pc_ms = 0;
+    bool      have_fc = false;
+    int       reboots = 0;
     double t_plus_s = 0; //time since liftoff
     double vspeed_ms = 0; // m/s, up is positive
     double accel_total_g = 0;
@@ -64,7 +70,14 @@ inline double expected_interval_s(uint8_t state){
     }
 }
 // Call once for every NEW packet, never once per frame.
-inline void     update_stats(FlightStats& s, const TelemetryPacket& p){
+inline void update_stats(FlightStats& s, const TelemetryPacket& p, long long pc_ms){
+    if (s.have_fc && p.timestamp_ms + 1000 < s.last_fc_ms) {        // clock went backwards = reboot
+        s.fc_offset_ms = (s.last_fc_ms + s.fc_offset_ms) + (pc_ms - s.last_pc_ms) - p.timestamp_ms;
+        s.reboots++;
+        s.recent.clear();
+    }
+    s.t_ms = p.timestamp_ms + s.fc_offset_ms;
+    s.last_fc_ms = p.timestamp_ms;  s.last_pc_ms = pc_ms;  s.have_fc = true;
     if(p.flight_state == STATE_PAD && !s.launched){
         if(s.have_pad == false) {s.pad_alt_m = p.baro_alt_m; s.have_pad = true;}
         s.pad_alt_m += PAD_SMOOTHING *(p.baro_alt_m - s.pad_alt_m);
@@ -75,12 +88,12 @@ inline void     update_stats(FlightStats& s, const TelemetryPacket& p){
         }
     }
     s.agl_m = p.baro_alt_m - s.pad_alt_m;
-    if(p.flight_state != STATE_PAD){
-        if(!s.launched){ s.launched = true; s.liftoff_ms = p.timestamp_ms; }
-        s.t_plus_s = (p.timestamp_ms -s.liftoff_ms) / 1000.0;
-        s.peak_agl_m = std::max(s.agl_m,s.peak_agl_m);
+    if(p.flight_state != STATE_PAD && !s.launched){ s.launched = true; s.liftoff_ms = s.t_ms; }
+    if(s.launched){
+        s.t_plus_s = (s.t_ms - s.liftoff_ms) / 1000.0;
+        s.peak_agl_m = std::max(s.agl_m, s.peak_agl_m);
     }
-    s.recent.push_back({p.timestamp_ms/1000.0,p.baro_alt_m});
+    s.recent.push_back({s.t_ms/1000.0,p.baro_alt_m});
     if(s.recent.size() > VSPEED_WINDOW) s.recent.pop_front();
     s.vspeed_ms = slope_of(s.recent);
     s.accel_total_g = std::sqrt(p.accel_x_g*p.accel_x_g + p.accel_y_g*p.accel_y_g + p.accel_z_g*p.accel_z_g);

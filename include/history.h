@@ -15,7 +15,7 @@ struct History {
 };
 
 inline void History::add(const TelemetryPacket& p, const FlightStats& s){
-   t_s.push_back(p.timestamp_ms/1000.0);
+   t_s.push_back(s.t_ms/1000.0);
    if(s.have_pad) agl_m.push_back(s.agl_m);
    else{agl_m.push_back(NAN);}
    vs_baro.push_back(s.vspeed_ms);

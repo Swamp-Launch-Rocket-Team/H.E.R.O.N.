@@ -145,7 +145,7 @@ int main(int, char**)
             if(pkt_ok){
                 rx = new_rx;
                 pkt = new_pkt;
-                update_stats(stats,pkt);
+                update_stats(stats,pkt,pc_ms);
                 hist.add(pkt,stats);
                 orient.on_packet(pkt, stats, pc_ms);
                 last_packet_ms = pc_ms;
@@ -219,7 +219,9 @@ int main(int, char**)
             ImGui::Text("FC time %.1f s", pkt.timestamp_ms/1000.0);
             if(stats.launched == true) ImGui::Text("T+ %.1f s", stats.t_plus_s);
             else ImGui::Text("T+ -- s");
-            ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
+            if (stats.launched && stats.reboots > 0 && pkt.flight_state == STATE_PAD)
+            ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Flight State: PAD (FC rebooted x%d)", stats.reboots);
+            else ImGui::Text("Flight State: %s", flightStateToString(pkt.flight_state));
             
             ImGui::SeparatorText("Altitude");
             ImGui::Text("Baro alt: %.1f m", pkt.baro_alt_m); 
