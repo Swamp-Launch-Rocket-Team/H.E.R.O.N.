@@ -13,6 +13,7 @@
 #include "map_image.h"
 #include "history.h"
 #include "rocket_view.h"
+#include "orientation.h"
 #include <cmath>
 #include <stdio.h>
 #ifndef STB_IMAGE_STATIC
@@ -33,7 +34,7 @@ int main(int, char**)
     // Window. No FLAG_WINDOW_HIGHDPI: we scale ImGui ourselves (below), as the GLFW version did,
     // and rlImGui only applies its own DPI scale when that flag is set.
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1280, 800, "Swamp Launch GCS");
+    InitWindow(1280, 800, "High Elevation Radio Observation Network");
     SetExitKey(KEY_NULL);                     // raylib closes on Esc by default; not on launch day
     float main_scale = GetWindowScaleDPI().x; // monitor scale, e.g. 1.5 at 150%
     SetWindowSize((int)(1280 * main_scale), (int)(800 * main_scale));
@@ -56,8 +57,8 @@ int main(int, char**)
    !fillMapImage(map, "maps\\test_site.jpg", "maps\\test_site.txt")) fprintf(stderr, "no map loaded\n");
     RocketView rocket_view;
     if(!rocket_view.Load()) fprintf(stderr, "rocket models not loaded\n");
-    // TEST (Phase 3): fixed 30 degree tilt about north. Phase 4 replaces this with rocket_orientation().
-    Quaternion rocket_q = QuaternionFromAxisAngle(Vector3{1.0f, 0.0f, 0.0f}, 30.0f * DEG2RAD);
+    OrientationTracker orient;
+    
 
     // Load Fonts
     // - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
@@ -103,12 +104,6 @@ int main(int, char**)
     if(have_packet) last_packet_ms = SessionLog::now_ms();
     double limit_s = std::max(3 * expected_interval_s(pkt.flight_state), 2.0);
     /*
-        Graphs,
-
-        Altitude vs Time
-        
-        Visualizers
-            live location via gps
         Buttons to switch btwn them
     
     */
@@ -128,7 +123,10 @@ int main(int, char**)
             
             std::string before = tail.current();
             tail.follow_newest("logs");
-            if(tail.current() != before) {stats = FlightStats{}; hist.clear();}
+            if(tail.current() != before) {
+                stats = FlightStats{}; 
+                hist.clear(); orient = OrientationTracker{};
+            }
             next_check_ms = SessionLog::now_ms() + 1000;
         }
         while(tail.next_line(line)){
@@ -149,6 +147,7 @@ int main(int, char**)
                 pkt = new_pkt;
                 update_stats(stats,pkt);
                 hist.add(pkt,stats);
+                orient.on_packet(pkt, stats, pc_ms);
                 last_packet_ms = pc_ms;
                 have_packet = true;
                 if(pkt.gps_fix_type >= 3){
@@ -364,7 +363,7 @@ int main(int, char**)
         
         
         // 3D rocket into its texture (must be outside BeginDrawing/EndDrawing)
-        rocket_view.Render(rocket_q);
+        rocket_view.Render(orient.at(SessionLog::now_ms()));
 
         // Rendering (rlImGuiEnd calls ImGui::Render and draws it with raylib)
         BeginDrawing();

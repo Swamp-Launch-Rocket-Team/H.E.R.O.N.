@@ -81,6 +81,10 @@ int main(){
         pkt.gps_alt_msl_m = PAD_MSL_M + h + 2*noise(rng);
         pkt.batt_voltage_v = 4.15 - 0.001*t +0.005*noise(rng);
         pkt.gps_vel_down_ms = -v;
+        if(pkt.flight_state == STATE_BOOST || pkt.flight_state == STATE_COAST){
+            pkt.gps_vel_east_ms  = 15.0;   // test lean: constant horizontal speed
+            pkt.gps_vel_north_ms = 5.0;
+        }
         if(pkt.flight_state == STATE_PAD) pkt.accel_z_g = 1.0 + 0.02*noise(rng);
         if(pkt.flight_state == STATE_BOOST) pkt.accel_z_g = (BOOST_ACCEL +G)/G + 0.02*noise(rng);
         if(pkt.flight_state == STATE_COAST) pkt.accel_z_g = 0.0 + 0.02*noise(rng);
@@ -88,12 +92,14 @@ int main(){
             pkt.accel_z_g = 1.0 + 0.02*noise(rng);
             pkt.gps_longitude_deg += WIND_EAST_MS * 0.2 / (111320.0 * std::cos(pkt.gps_latitude_deg * PI / 180.0));
             pkt.gps_vel_east_ms = WIND_EAST_MS;
+            pkt.gps_vel_north_ms = 0;
             pkt.gps_ground_speed_ms = WIND_EAST_MS;
             pkt.gps_heading_deg = 90;
         }
 
         if(pkt.flight_state == STATE_LANDED){
             pkt.accel_z_g = 1.0 + 0.02*noise(rng);
+            pkt.gps_vel_north_ms = 0;
             pkt.gps_vel_east_ms = 0;
             pkt.gps_ground_speed_ms = 0;
         }
