@@ -177,7 +177,7 @@ int main(int, char**)
                     have_map_fix = true;
                     rocket_smooth.add(pkt.gps_latitude_deg, pkt.gps_longitude_deg, pc_ms, STILL_SMOOTHING_S);
                     // Track starts at launch: on the pad it only drew the GPS noise as a scribble
-                    if(stats.have_pad_pos && stats.launched){
+                    if(stats.have_origin && stats.launched){
                         double east_m, north_m;
                         latlon_to_en(stats, pkt.gps_latitude_deg, pkt.gps_longitude_deg, east_m, north_m);
                         stats.track_e.push_back(east_m);
@@ -193,15 +193,19 @@ int main(int, char**)
                 if(parse_gs_line(text,new_gs) && gps_fix_usable(new_gs.fix, new_gs.sats)){
                     gs = new_gs;
                     gs_smooth.add(new_gs.lat, new_gs.lon, pc_ms, STILL_SMOOTHING_S);   // the receiver doesn't move
+                    // No rocket fix yet: anchor the map on the receiver so the map still shows
+                    if(!stats.have_origin){
+                        stats.origin_lat = new_gs.lat; stats.origin_lon = new_gs.lon; stats.have_origin = true;
+                    }
 
                 } 
             } 
         }
 
         
-        if(stats.have_pad_pos && !map_downloaded){
+        if(stats.have_origin && !map_downloaded){
             map_downloaded = true;
-            MapBox box = map_box_around(stats.pad_lat, stats.pad_lon);
+            MapBox box = map_box_around(stats.origin_lat, stats.origin_lon);
             if(download_map(box, "maps\\live_site.jpg", "maps\\live_site.txt")){
                 MapImage new_map;
                 if(fillMapImage(new_map, "maps\\live_site.jpg", "maps\\live_site.txt")){
@@ -292,7 +296,7 @@ int main(int, char**)
         if(ImPlot::BeginPlot("##track", ImVec2(-1, -1), ImPlotFlags_Equal)){
             ImPlot::SetupAxes("East (m)", "North (m)", 0, 0);
             ImPlot::SetupAxesLimits(-500, 500, -500, 500, ImPlotCond_Once);
-            if(map.tex.id != 0 && stats.have_pad_pos){
+            if(map.tex.id != 0 && stats.have_origin){
                 double sw_e, sw_n, ne_e, ne_n;
                 latlon_to_en(stats, map.south, map.west, sw_e, sw_n);
                 latlon_to_en(stats, map.north, map.east, ne_e, ne_n);
@@ -307,7 +311,7 @@ int main(int, char**)
                 ImPlot::PlotScatter("Pad Marker", &pad_e, &pad_n, 1);
             }
             // Rocket: smoothed while it stands still (PAD, LANDED), the latest fix while it flies
-            if(stats.have_pad_pos && have_map_fix){
+            if(stats.have_origin && have_map_fix){
                 bool rocket_still = (pkt.flight_state == STATE_PAD || pkt.flight_state == STATE_LANDED);
                 double rk_lat = (rocket_still && rocket_smooth.have) ? rocket_smooth.lat : map_lat;
                 double rk_lon = (rocket_still && rocket_smooth.have) ? rocket_smooth.lon : map_lon;
@@ -315,7 +319,7 @@ int main(int, char**)
                 latlon_to_en(stats, rk_lat, rk_lon, rk_e, rk_n);
                 ImPlot::PlotScatter("Rocket", &rk_e, &rk_n, 1);
             }
-            if(show_gs && gs_smooth.have && stats.have_pad_pos){
+            if(show_gs && gs_smooth.have && stats.have_origin){
                 double gs_e, gs_n;
                 latlon_to_en(stats, gs_smooth.lat, gs_smooth.lon, gs_e, gs_n);
                 ImPlotSpec gs_spec;

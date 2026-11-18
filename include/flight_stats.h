@@ -37,7 +37,10 @@ struct FlightStats{
     std::deque<std::pair<double,double>> recent; // (rocket time s, baro alt m)
     std::vector<double> track_e;
     std::vector<double> track_n;
-    // Fixed origin of the ground-track plot: the first pad fix, never moved afterwards.
+    // Fixed origin of the ground-track plot: the first usable fix of the session, in any flight
+    // state, never moved afterwards. Normally that is a pad fix. It used to be set only on the pad
+    // before launch, so a session that started with the rocket already out of PAD (e.g. still in
+    // COAST after a shake test) never got a map or any markers.
     // (Converting against pad_lat/pad_lon, which keeps being smoothed while on the pad, made the
     // map, the receiver and old track points all slide around as that estimate wandered.)
     bool have_origin = false;
@@ -113,12 +116,14 @@ inline void update_stats(FlightStats& s, const TelemetryPacket& p, long long pc_
     }
     s.t_ms = p.timestamp_ms + s.fc_offset_ms;
     s.last_fc_ms = p.timestamp_ms;  s.last_pc_ms = pc_ms;  s.have_fc = true;
+    if(!s.have_origin && gps_fix_usable(p.gps_fix_type, p.gps_num_sats)){
+        s.origin_lat = p.gps_latitude_deg; s.origin_lon = p.gps_longitude_deg; s.have_origin = true;
+    }
     if(p.flight_state == STATE_PAD && !s.launched){
         if(s.have_pad == false) {s.pad_alt_m = p.baro_alt_m; s.have_pad = true;}
         s.pad_alt_m += PAD_SMOOTHING *(p.baro_alt_m - s.pad_alt_m);
         if(gps_fix_usable(p.gps_fix_type, p.gps_num_sats)){
             if(!s.have_pad_pos) {s.pad_lat = p.gps_latitude_deg; s.pad_lon = p.gps_longitude_deg; s.have_pad_pos = true;}
-            if(!s.have_origin)  {s.origin_lat = p.gps_latitude_deg; s.origin_lon = p.gps_longitude_deg; s.have_origin = true;}
             s.pad_lat += PAD_SMOOTHING * (p.gps_latitude_deg - s.pad_lat);
             s.pad_lon += PAD_SMOOTHING * (p.gps_longitude_deg - s.pad_lon);
         }
