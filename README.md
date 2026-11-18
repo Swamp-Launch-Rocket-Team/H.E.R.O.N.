@@ -11,10 +11,10 @@ Runs on Windows.
 You only need to do this once per computer.
 
 1. **Install MSYS2** from [msys2.org](https://www.msys2.org/). Keep the default install folder (`C:\msys64`).
-2. **Install the compiler and GLFW** (the window library the dashboard uses). Open **MSYS2 UCRT64** from the Start menu and run:
+2. **Install the compiler and raylib** (the graphics library the dashboard uses). Open **MSYS2 UCRT64** from the Start menu and run:
 
    ```
-   pacman -S mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-glfw
+   pacman -S mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-raylib
    ```
 
    Press Enter to accept the defaults, then `Y` to confirm.
@@ -64,17 +64,21 @@ If the board isn't plugged in yet, or it resets, the ground station keeps trying
 Two windows:
 
 - **gcs** (a console window) prints one line for every packet received: flight time, flight state, altitude, battery, GPS fix and satellites, position, and signal strength.
-- **Swamp Launch GCS** (the dashboard) shows these panels:
+- **Swamp Launch GCS** (the dashboard) shows four panels:
 
 | Panel | What it shows |
 |---|---|
-| Flight | Time since the last packet, flight computer clock, T+ (time since launch), flight state |
-| Altitude | Vertical speed, height above the pad, peak altitude, GPS climb rate, temperature, air pressure |
-| GPS | GPS altitude, fix type and satellite count, position (click it to copy), ground speed and heading |
-| IMU | Total acceleration and each axis (in g), rotation rate |
-| Health and Link | Battery voltage, signal strength (RSSI), signal quality (SNR), callsign |
-| Telemetry | Barometric altitude |
-| Ground track | The rocket's path seen from above, in metres east and north of the pad |
+| Graphs (left) | Height above the pad, vertical speed (barometer and GPS) and total acceleration against T+. Tick boxes hide each graph; **Follow** keeps the last 30 seconds in view (dragging a graph turns it off). |
+| Ground track (middle) | A satellite map around the pad with the pad, the rocket, the ground station and the rocket's track after launch (see below) |
+| Data (top right) | **Flight**: time since the last packet, flight computer clock, T+ (time since launch), flight state (and how many times the flight computer rebooted)<br>**Altitude**: barometric altitude, vertical speed, height above the pad, peak altitude, GPS climb rate, temperature, air pressure<br>**Health and Link**: battery voltage, signal strength (RSSI), signal quality (SNR), callsign<br>**GPS**: GPS altitude, fix type and satellite count, position (click it to copy), ground speed and heading<br>**IMU**: total acceleration and each axis (in g), rotation rate |
+| Rocket (bottom right) | A 3D model of the rocket that turns with the telemetry. Drag inside the panel to orbit the camera. |
+
+About the ground track:
+
+- The map is downloaded from USGS satellite imagery (about 4 km around the pad) when the first good GPS position arrives, and saved as `maps\live_site.jpg`. This needs an internet connection; without one, the test-site map in `maps\` is shown instead.
+- Positions are in metres east and north of the first pad position, and the map stays put.
+- While the rocket is on the pad or has landed, its marker shows its position averaged over 30 seconds, because a GPS that isn't moving still wanders a few metres. The ground station marker is averaged the same way. A jump of more than 30 m counts as a real move and shows up straight away.
+- Only GPS fixes from 6 or more satellites are used on the map. Fixes from fewer satellites can be hundreds of metres off. The Data panel and the copy button still show the latest position whatever its quality.
 
 Status messages:
 
@@ -99,8 +103,9 @@ The `logs` folder is not uploaded to GitHub, so copy out any flights you want to
 | `g++ not found` | `C:\msys64\ucrt64\bin` isn't on your PATH (setup step 3). Close and reopen the terminal after changing it. |
 | `'run.bat' is not recognized` | In PowerShell, type `.\run.bat`. Otherwise you're not in the HERON folder (step 2). |
 | `usage: run.bat demo  or  run.bat COM4` | Add `demo` or your COM port after `run.bat`. Double-clicking run.bat won't work. |
-| A popup saying a `.dll` was not found (for example `glfw3.dll`) | GLFW isn't installed (setup step 2) or PATH isn't set (setup step 3). |
-| `cannot find -lglfw3` while building | GLFW isn't installed (setup step 2). |
+| A popup saying a `.dll` was not found (for example `libraylib.dll`) | raylib isn't installed (setup step 2) or PATH isn't set (setup step 3). |
+| `cannot find -lraylib` or `raylib.h: No such file` while building | raylib isn't installed (setup step 2). |
+| The ground track shows the test-site map instead of the launch site | No internet connection when the first GPS position arrived. The track and markers still work; restart the dashboard once you're online to download the map. |
 | The gcs window stays empty | Wrong COM port, or another program has the port open. Check Device Manager and close any serial monitors. |
 | The dashboard says NO PACKET forever | The gcs window was closed, or the programs were started from a different folder. Start them with `run.bat` from the HERON folder. |
 
@@ -111,7 +116,7 @@ ground board (USB)  →  gcs.exe  →  logs\*_raw.log  →  display.exe
 ```
 
 - **gcs.exe** reads lines from the COM port (or from piped input), checks and decodes each packet, prints it, and writes both log files.
-- **display.exe** is the dashboard, built with [Dear ImGui](https://github.com/ocornut/imgui) (user interface) and [ImPlot](https://github.com/epezent/implot) (plots). It reads the newest `_raw.log` in `logs` and switches to a newer one within a second when a new session starts.
+- **display.exe** is the dashboard, built with [raylib](https://www.raylib.com/) (window and 3D view), [Dear ImGui](https://github.com/ocornut/imgui) (user interface, connected to raylib through [rlImGui](https://github.com/raylib-extras/rlImGui)) and [ImPlot](https://github.com/epezent/implot) (plots). It reads the newest `_raw.log` in `logs` and switches to a newer one within a second when a new session starts.
 - **fake_rx.exe** prints a simulated flight in the same format as the ground board. `run.bat demo` pipes it into gcs: `fake_rx.exe | gcs.exe`.
 
 The log file is the only connection between gcs.exe and display.exe. If you close the dashboard, reopening it (from the HERON folder) replays the current session from the start, so nothing is lost.
@@ -150,9 +155,16 @@ Each check prints PASS or FAIL, and the exit code is the number of failures.
 | `include/line_reader.h` | Splits incoming bytes into lines |
 | `include/session_log.h` | Writes the raw log and the CSV |
 | `include/log_tail.h` | Lets the dashboard follow the newest log |
-| `include/flight_stats.h` | Height above pad, peak altitude, vertical speed, T+ |
+| `include/flight_stats.h` | Height above pad, peak altitude, vertical speed, T+, flight computer reboots; ground-track positions and smoothing |
+| `include/history.h` | Data behind the graphs |
+| `include/orientation.h` | Works out the rocket's orientation from the telemetry for the 3D view |
+| `include/rocket_view.h` | The 3D rocket panel |
+| `include/map_box.h`, `map_download.cpp` | Downloads the USGS map around the pad (`map_download.cpp` is separate because `windows.h` clashes with raylib) |
+| `include/map_image.h` | Loads the map image for the ground track |
+| `maps/` | Test-site map; the downloaded `live_site` map is saved here too (not uploaded to GitHub) |
+| `resources/models/` | Rocket 3D models by Will Huff (see `SOURCE.txt`) |
 | `run.bat`, `build_display.bat` | Build and launch scripts |
-| `third_party/` | Dear ImGui and ImPlot source |
+| `third_party/` | Dear ImGui, ImPlot, rlImGui and stb source |
 
 ### Bench mode
 
