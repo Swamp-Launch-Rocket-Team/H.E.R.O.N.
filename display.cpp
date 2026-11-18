@@ -95,7 +95,15 @@ int main(int, char**)
     bool have_packet = false;
     bool map_downloaded = false;
     GsLine gs{};
-    bool have_gs = false;
+    // Smoothed positions for markers that stand still (see SmoothedPos in flight_stats.h)
+    // 30 s: bench logs showed GPS error drifting slowly over minutes, so shorter averages barely helped.
+    const double STILL_SMOOTHING_S = 30.0;
+    SmoothedPos rocket_smooth, gs_smooth;
+    uint8_t prev_state = 0xFF;
+    // Latest fix good enough for the map (gps_fix_usable). The Data panel and the copy button
+    // keep showing the raw latest 3D fix.
+    double map_lat = 0, map_lon = 0;
+    bool have_map_fix = false;
     bool show_gs = true;
     bool show_alt = true, show_vs = true, show_acc = true;
     bool follow = true;
@@ -124,8 +132,10 @@ int main(int, char**)
             std::string before = tail.current();
             tail.follow_newest("logs");
             if(tail.current() != before) {
-                stats = FlightStats{}; 
+                stats = FlightStats{};
                 hist.clear(); orient = OrientationTracker{};
+                rocket_smooth = SmoothedPos{}; gs_smooth = SmoothedPos{}; prev_state = 0xFF;
+                have_map_fix = false;
             }
             next_check_ms = SessionLog::now_ms() + 1000;
         }
@@ -150,12 +160,24 @@ int main(int, char**)
                 orient.on_packet(pkt, stats, pc_ms);
                 last_packet_ms = pc_ms;
                 have_packet = true;
+                // Entering PAD or LANDED: restart the smoothed position so it doesn't lag behind the flight
+                bool still_state = (pkt.flight_state == STATE_PAD || pkt.flight_state == STATE_LANDED);
+                if(pkt.flight_state != prev_state && still_state) rocket_smooth = SmoothedPos{};
+                prev_state = pkt.flight_state;
                 if(pkt.gps_fix_type >= 3){
                    last_good_latitude = pkt.gps_latitude_deg;
                    last_good_longitude = pkt.gps_longitude_deg;
                    last_good_fix_ms = pc_ms;
                    have_good_fix = true;
-                    if(stats.have_pad_pos){
+                }
+                // Map: only fixes with enough satellites (low-satellite fixes jumped up to 448 m)
+                if(gps_fix_usable(pkt.gps_fix_type, pkt.gps_num_sats)){
+                    map_lat = pkt.gps_latitude_deg;
+                    map_lon = pkt.gps_longitude_deg;
+                    have_map_fix = true;
+                    rocket_smooth.add(pkt.gps_latitude_deg, pkt.gps_longitude_deg, pc_ms, STILL_SMOOTHING_S);
+                    // Track starts at launch: on the pad it only drew the GPS noise as a scribble
+                    if(stats.have_pad_pos && stats.launched){
                         double east_m, north_m;
                         latlon_to_en(stats, pkt.gps_latitude_deg, pkt.gps_longitude_deg, east_m, north_m);
                         stats.track_e.push_back(east_m);
@@ -168,9 +190,9 @@ int main(int, char**)
             } 
             else{
                 GsLine new_gs;
-                if(parse_gs_line(text,new_gs) && new_gs.fix >=3){
+                if(parse_gs_line(text,new_gs) && gps_fix_usable(new_gs.fix, new_gs.sats)){
                     gs = new_gs;
-                    have_gs = true; 
+                    gs_smooth.add(new_gs.lat, new_gs.lon, pc_ms, STILL_SMOOTHING_S);   // the receiver doesn't move
 
                 } 
             } 
@@ -278,13 +300,24 @@ int main(int, char**)
                 spec.Flags = ImPlotItemFlags_NoFit;
                 ImPlot::PlotImage("##map", (ImTextureID)map.tex.id, ImPlotPoint(sw_e, sw_n), ImPlotPoint(ne_e, ne_n), ImVec2(0,0), ImVec2(1,1), ImVec4(1,1,1,1), spec);
             }
-            double zero = 0.0;
             ImPlot::PlotLine("Track", stats.track_e.data(), stats.track_n.data(), (int)stats.track_e.size());
-            ImPlot::PlotScatter("Pad Marker", &zero,&zero,1);
-            if(!stats.track_e.empty()) ImPlot::PlotScatter("Last fix", &stats.track_e.back(), &stats.track_n.back(), 1);
-            if(show_gs && have_gs && stats.have_pad_pos){
+            if(stats.have_pad_pos){
+                double pad_e, pad_n;   // the pad estimate, in the plot's fixed frame
+                latlon_to_en(stats, stats.pad_lat, stats.pad_lon, pad_e, pad_n);
+                ImPlot::PlotScatter("Pad Marker", &pad_e, &pad_n, 1);
+            }
+            // Rocket: smoothed while it stands still (PAD, LANDED), the latest fix while it flies
+            if(stats.have_pad_pos && have_map_fix){
+                bool rocket_still = (pkt.flight_state == STATE_PAD || pkt.flight_state == STATE_LANDED);
+                double rk_lat = (rocket_still && rocket_smooth.have) ? rocket_smooth.lat : map_lat;
+                double rk_lon = (rocket_still && rocket_smooth.have) ? rocket_smooth.lon : map_lon;
+                double rk_e, rk_n;
+                latlon_to_en(stats, rk_lat, rk_lon, rk_e, rk_n);
+                ImPlot::PlotScatter("Rocket", &rk_e, &rk_n, 1);
+            }
+            if(show_gs && gs_smooth.have && stats.have_pad_pos){
                 double gs_e, gs_n;
-                latlon_to_en(stats, gs.lat, gs.lon, gs_e, gs_n);  
+                latlon_to_en(stats, gs_smooth.lat, gs_smooth.lon, gs_e, gs_n);
                 ImPlotSpec gs_spec;
                 gs_spec.Marker = ImPlotMarker_Square;
                 gs_spec.MarkerSize = 6;

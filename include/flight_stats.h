@@ -11,6 +11,10 @@ constexpr double PAD_SMOOTHING = 0.05;   // how far each pad reading pulls the r
 constexpr double PI_D = 3.14159265358979323846;   // not PI: raylib #defines PI as a float
 inline double deg_to_rad(double deg){ return deg * PI_D / 180.0; }
 constexpr size_t VSPEED_WINDOW = 5;      // packets used for vertical speed
+// Minimum satellites for a 3D fix to be used on the map. In a bench log, 4-5 satellite fixes
+// (right after the GPS reacquired) were typically 50-90 m off and up to 448 m; 6+ were within ~17 m.
+constexpr int GPS_MIN_SATS = 6;
+inline bool gps_fix_usable(int fix_type, int sats){ return fix_type >= 3 && sats >= GPS_MIN_SATS; }
 struct FlightStats{
     bool have_pad = false; //is the pad refrence known?
     bool have_pad_pos = false;
@@ -33,11 +37,42 @@ struct FlightStats{
     std::deque<std::pair<double,double>> recent; // (rocket time s, baro alt m)
     std::vector<double> track_e;
     std::vector<double> track_n;
+    // Fixed origin of the ground-track plot: the first pad fix, never moved afterwards.
+    // (Converting against pad_lat/pad_lon, which keeps being smoothed while on the pad, made the
+    // map, the receiver and old track points all slide around as that estimate wandered.)
+    bool have_origin = false;
+    double origin_lat = 0;
+    double origin_lon = 0;
 };
+// Metres east/north of the plot's fixed origin.
 inline void latlon_to_en(const FlightStats& s, double lat, double lon, double& east_m, double& north_m){
-    north_m = (lat - s.pad_lat) * 111320.0;
-    east_m  = (lon - s.pad_lon) * 111320.0  * std::cos(deg_to_rad(s.pad_lat));
+    north_m = (lat - s.origin_lat) * 111320.0;
+    east_m  = (lon - s.origin_lon) * 111320.0  * std::cos(deg_to_rad(s.origin_lat));
 }
+// Smoothed position of something standing still (rocket on the pad or landed, the receiver).
+// Time-based, so it behaves the same whatever the packet rate. A GPS that isn't moving still
+// wanders a few metres (up to ~17 m on the bench); this keeps the marker from jumping around.
+// A fix farther than JUMP_M from the average is treated as a real move: the average restarts
+// there instead of crawling over (bench GPS noise stayed within ~17 m of its mean).
+struct SmoothedPos{
+    static constexpr double JUMP_M = 30.0;
+    bool have = false;
+    double lat = 0, lon = 0;
+    long long last_ms = 0;
+    void add(double new_lat, double new_lon, long long ms, double tau_s){
+        if(have){
+            double dn = (new_lat - lat) * 111320.0;
+            double de = (new_lon - lon) * 111320.0 * std::cos(deg_to_rad(lat));
+            if(std::sqrt(dn*dn + de*de) > JUMP_M) have = false;
+        }
+        if(!have){ lat = new_lat; lon = new_lon; last_ms = ms; have = true; return; }
+        double dt_s = std::max(0.0, (ms - last_ms) / 1000.0);
+        double a = 1.0 - std::exp(-dt_s / tau_s);
+        lat += a * (new_lat - lat);
+        lon += a * (new_lon - lon);
+        last_ms = ms;
+    }
+};
 // Slope (m/s) of the best-fit line through the (time, altitude) points.
 inline double slope_of(const std::deque<std::pair<double,double>>& pts){
     int size = pts.size();
@@ -81,8 +116,9 @@ inline void update_stats(FlightStats& s, const TelemetryPacket& p, long long pc_
     if(p.flight_state == STATE_PAD && !s.launched){
         if(s.have_pad == false) {s.pad_alt_m = p.baro_alt_m; s.have_pad = true;}
         s.pad_alt_m += PAD_SMOOTHING *(p.baro_alt_m - s.pad_alt_m);
-        if(p.gps_fix_type >= 3){
+        if(gps_fix_usable(p.gps_fix_type, p.gps_num_sats)){
             if(!s.have_pad_pos) {s.pad_lat = p.gps_latitude_deg; s.pad_lon = p.gps_longitude_deg; s.have_pad_pos = true;}
+            if(!s.have_origin)  {s.origin_lat = p.gps_latitude_deg; s.origin_lon = p.gps_longitude_deg; s.have_origin = true;}
             s.pad_lat += PAD_SMOOTHING * (p.gps_latitude_deg - s.pad_lat);
             s.pad_lon += PAD_SMOOTHING * (p.gps_longitude_deg - s.pad_lon);
         }
