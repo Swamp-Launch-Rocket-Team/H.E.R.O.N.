@@ -14,30 +14,40 @@ struct OrientationTracker {
     void on_packet(const TelemetryPacket& p, const FlightStats& s, long long pc_ms);  // once per NEW packet
     Quaternion at(long long now_ms) const;                                           // once per frame
 }; 
+// Stop-gap until the flight computer sends its own orientation: this only guesses from data meant
+// for other things, so it shows tilt but not spin about the rocket's axis or heading.
+//  - Gravity: when the accelerometer reads ~1 g the rocket is resting or hanging still, and "down"
+//    gives its tilt. Used in every stage (it used to be PAD only, so the view froze on the bench
+//    after a launch trigger, under the chute and after landing).
+//  - Direction of travel: in BOOST/COAST when moving faster than 5 m/s, now also on the way down
+//    after apogee (it used to need a climb, so the view froze at apogee).
+//  - Otherwise hold the last orientation.
 inline void OrientationTracker::on_packet(const TelemetryPacket& p, const FlightStats& s, long long pc_ms){
     Quaternion target = to;                       // default: hold the last target
 
-    if (p.flight_state == STATE_PAD) {
-        Vector3 a = { p.accel_z_g, p.accel_y_g, -p.accel_x_g };
-        float g = Vector3Length(a);
-        if (g > 0.8f && g < 1.2f)
-            target = QuaternionFromVector3ToVector3(Vector3Normalize(a), Vector3{0,0,1});
-    }
-    else if(p.flight_state == STATE_BOOST || p.flight_state == STATE_COAST ){
+    Vector3 a = { p.accel_z_g, p.accel_y_g, -p.accel_x_g };
+    float g = Vector3Length(a);
+    bool at_rest = (g > 0.8f && g < 1.2f);
+    Quaternion from_gravity = at_rest ? QuaternionFromVector3ToVector3(Vector3Normalize(a), Vector3{0,0,1})
+                                      : to;
+
+    if (p.flight_state == STATE_BOOST || p.flight_state == STATE_COAST) {
         float vn = 0, ve = 0, up = 0;
-        if(p.gps_fix_type >= 3){
+        if (gps_fix_usable(p.gps_fix_type, p.gps_num_sats)) {   // 4-5 satellite fixes can be wildly off
             up = -p.gps_vel_down_ms;
             vn = p.gps_vel_north_ms;
             ve = p.gps_vel_east_ms;
-        } 
+        }
         else up = s.vspeed_ms;
 
         Vector3 v = { vn, -ve, up };   // north, west (= -east), up
         float speed = Vector3Length(v);
         //5 m/s is not fixed, lower = more noise
-        if (speed >= 5.0f && v.z > 0.0f) {
-            target = QuaternionFromVector3ToVector3(Vector3{0,0,1}, Vector3Normalize(v));
-        }     
+        if (speed >= 5.0f)       target = QuaternionFromVector3ToVector3(Vector3{0,0,1}, Vector3Normalize(v));
+        else if (at_rest)        target = from_gravity;   // e.g. on the bench after a launch trigger
+    }
+    else if (at_rest) {
+        target = from_gravity;   // PAD, DESCENT (hanging under the chute), LANDED (lying on the ground)
     }
     from = at(pc_ms);
     to = target;
