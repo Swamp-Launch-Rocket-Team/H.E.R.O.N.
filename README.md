@@ -78,7 +78,7 @@ About the ground track:
 - The map is downloaded from USGS satellite imagery (about 4 km around the pad) when the first good GPS position arrives, and saved as `maps\live_site.jpg`. This needs an internet connection; without one, the test-site map in `maps\` is shown instead.
 - Positions are in metres east and north of the first good GPS position of the session (normally the pad; the receiver's if the rocket has no fix yet), and the map stays put. The ground track works even if the dashboard is started after launch.
 - While the rocket is on the pad or has landed, its marker shows its position averaged over 30 seconds, because a GPS that isn't moving still wanders a few metres. The ground station marker is averaged the same way. A jump of more than 30 m counts as a real move and shows up straight away.
-- Only GPS fixes from 6 or more satellites are used on the map. Fixes from fewer satellites can be hundreds of metres off. The Data panel and the copy button still show the latest position whatever its quality.
+- Only GPS fixes from 6 or more satellites are used on the map. Fixes from fewer satellites can be hundreds of metres off. When the latest fix has fewer, it is drawn as a hollow grey **Rocket (low-quality fix)** marker and the Data panel says it is not used on the map; it never moves the pad, the track or the averaged marker. The copy button always copies the latest position whatever its quality.
 
 Status messages:
 

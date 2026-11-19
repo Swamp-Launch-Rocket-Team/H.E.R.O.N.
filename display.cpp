@@ -92,6 +92,7 @@ int main(int, char**)
     double last_good_longitude = 0;
     long long last_good_fix_ms = 0;
     bool have_good_fix = false;
+    bool last_fix_low_quality = false;   // latest 3D fix has fewer than GPS_MIN_SATS satellites
     bool have_packet = false;
     bool map_downloaded = false;
     GsLine gs{};
@@ -169,6 +170,8 @@ int main(int, char**)
                    last_good_longitude = pkt.gps_longitude_deg;
                    last_good_fix_ms = pc_ms;
                    have_good_fix = true;
+                   // Latest 3D fix too few satellites to use on the map: shown as its own hollow marker
+                   last_fix_low_quality = !gps_fix_usable(pkt.gps_fix_type, pkt.gps_num_sats);
                 }
                 // Map: only fixes with enough satellites (low-satellite fixes jumped up to 448 m)
                 if(gps_fix_usable(pkt.gps_fix_type, pkt.gps_num_sats)){
@@ -266,6 +269,10 @@ int main(int, char**)
             ImGui::Text("GPS altitude: %.1f m", pkt.gps_alt_msl_m);
             if(have_good_fix){
                 ImGui::Text("Fix Type: %d, Satellites: %u",pkt.gps_fix_type, pkt.gps_num_sats);
+                if(last_fix_low_quality){
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "(low quality: not used on the map, needs %d+)", GPS_MIN_SATS);
+                }
                 char label[96];
                 std::snprintf(label, sizeof label, "Latitude: %.7f, Longitude: %.7f###copypos", last_good_latitude, last_good_longitude);
                 if(ImGui::Button(label)){
@@ -318,6 +325,20 @@ int main(int, char**)
                 double rk_e, rk_n;
                 latlon_to_en(stats, rk_lat, rk_lon, rk_e, rk_n);
                 ImPlot::PlotScatter("Rocket", &rk_e, &rk_n, 1);
+            }
+            // Latest fix from too few satellites: drawn hollow and grey, raw, so it's visible but not
+            // trusted. It never moves the pad estimate, the track or the smoothed marker (it can be
+            // hundreds of metres off).
+            if(stats.have_origin && have_good_fix && last_fix_low_quality){
+                double lq_e, lq_n;
+                latlon_to_en(stats, last_good_latitude, last_good_longitude, lq_e, lq_n);
+                ImPlotSpec lq_spec;
+                lq_spec.Marker = ImPlotMarker_Circle;
+                lq_spec.MarkerSize = 6;
+                lq_spec.LineWeight = 2.0f;
+                lq_spec.MarkerLineColor = ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
+                lq_spec.MarkerFillColor = ImVec4(0, 0, 0, 0);   // hollow
+                ImPlot::PlotScatter("Rocket (low-quality fix)", &lq_e, &lq_n, 1, lq_spec);
             }
             if(show_gs && gs_smooth.have && stats.have_origin){
                 double gs_e, gs_n;
